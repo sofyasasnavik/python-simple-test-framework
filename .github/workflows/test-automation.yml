@@ -1,149 +1,40 @@
-name: API Test Automation
+name: Test Automation
 
 on:
   push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
-  schedule:
-    - cron: '0 0 * * *'
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.9', '3.10', '3.11']
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
-    
-    - name: Cache pip dependencies
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
+        python-version: '3.11'
+        cache: 'pip'
     
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Create necessary directories
+    - name: Run tests
       run: |
-        mkdir -p logs
-        mkdir -p reports
-        mkdir -p allure-results
-    
-    - name: Run smoke tests
-      run: |
-        pytest -m smoke --alluredir=allure-results --html=reports/smoke-report.html --self-contained-html
+        pytest --alluredir=allure-results -v
       continue-on-error: false
     
-    - name: Run all tests
-      run: |
-        pytest --alluredir=allure-results --html=reports/report.html --self-contained-html
-      continue-on-error: true
-    
-    - name: Generate Allure Report
+    - name: Upload Test Reports
       if: always()
-      uses: simple-elf/allure-report-action@master
+      uses: actions/upload-artifact@v4
       with:
-        allure_results: allure-results
-        allure_history: allure-history
-        keep_reports: 20
-    
-    - name: Upload Allure Results
-      if: always()
-      uses: actions/upload-artifact@v3
-      with:
-        name: allure-results-${{ matrix.python-version }}
-        path: allure-results/
+        name: test-reports
+        path: |
+          allure-results/
+          logs/
         retention-days: 30
-    
-    - name: Upload HTML Report
-      if: always()
-      uses: actions/upload-artifact@v3
-      with:
-        name: html-report-${{ matrix.python-version }}
-        path: reports/
-        retention-days: 30
-    
-    - name: Upload Test Logs
-      if: always()
-      uses: actions/upload-artifact@v3
-      with:
-        name: test-logs-${{ matrix.python-version }}
-        path: logs/
-        retention-days: 30
-    
-    - name: Publish Test Results
-      if: always()
-      uses: EnricoMi/publish-unit-test-result-action@v2
-      with:
-        files: |
-          reports/*.xml
-    
-    - name: Comment PR with Test Results
-      if: github.event_name == 'pull_request' && always()
-      uses: actions/github-script@v6
-      with:
-        script: |
-          const fs = require('fs');
-          const reportPath = 'reports/report.html';
-          if (fs.existsSync(reportPath)) {
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '✅ Test execution completed! Check the artifacts for detailed reports.'
-            });
-          }
-  
-  deploy-report:
-    needs: test
-    runs-on: ubuntu-latest
-    if: always()
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-    
-    - name: Download Allure Results
-      uses: actions/download-artifact@v3
-      with:
-        name: allure-results-3.11
-        path: allure-results
-    
-    - name: Get Allure history
-      uses: actions/checkout@v3
-      if: always()
-      continue-on-error: true
-      with:
-        ref: gh-pages
-        path: gh-pages
-    
-    - name: Allure Report action
-      uses: simple-elf/allure-report-action@master
-      if: always()
-      with:
-        allure_results: allure-results
-        allure_history: allure-history
-        keep_reports: 20
-    
-    - name: Deploy report to Github Pages
-      if: always()
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_branch: gh-pages
-        publish_dir: allure-history
